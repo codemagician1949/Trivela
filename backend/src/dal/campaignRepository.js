@@ -1,4 +1,4 @@
-const REQUIRED_METHODS = ['list', 'getById', 'create', 'update', 'delete'];
+const REQUIRED_METHODS = ['list', 'getById', 'getBySlug', 'create', 'update', 'delete'];
 
 export function assertCampaignRepository(repository) {
   if (!repository || typeof repository !== 'object') {

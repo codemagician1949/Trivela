@@ -56,8 +56,15 @@ function parseAllowedOrigins(value) {
 }
 
 function createCorsOptions(allowedOrigins) {
+  const corsOptions = {
+    maxAge: 86400, // 24 hours preflight cache
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
+  };
+
   if (allowedOrigins.includes('*')) {
-    return { origin: true };
+    return { origin: true, ...corsOptions };
   }
 
   return {
@@ -69,6 +76,7 @@ function createCorsOptions(allowedOrigins) {
 
       callback(new Error('Not allowed by CORS'));
     },
+    ...corsOptions,
   };
 }
 
@@ -104,6 +112,10 @@ function validateCampaignPayload(payload, { partial = false } = {}) {
     if (typeof payload.name !== 'string' || payload.name.trim().length === 0) {
       errors.push('name is required and must be a non-empty string');
     }
+  }
+
+  if (Object.hasOwn(payload, 'slug') && typeof payload.slug !== 'string') {
+    errors.push('slug must be a string when provided');
   }
 
   if (!partial || Object.hasOwn(payload, 'rewardPerAction')) {
@@ -159,6 +171,15 @@ export function createApp(options = {}) {
   );
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const allowedOrigins = parseAllowedOrigins(corsAllowedOrigins);
+
+  // Validate CORS configuration in production
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction && (allowedOrigins.length === 0 || allowedOrigins.includes('*'))) {
+    throw new Error(
+      'CORS_ALLOWED_ORIGINS must be explicitly configured in production. Wildcard origins are not permitted.',
+    );
+  }
+
   const rateLimitWindowMs = normalizePositiveInteger(
     options.rateLimit?.windowMs ?? process.env.RATE_LIMIT_WINDOW_MS,
     DEFAULT_RATE_LIMIT_WINDOW_MS,
@@ -367,7 +388,8 @@ export function createApp(options = {}) {
         metrics: 'GET /metrics',
         info: `GET ${API_V1_PREFIX}`,
         campaigns: `GET ${API_V1_PREFIX}/campaigns`,
-        campaign: `GET ${API_V1_PREFIX}/campaigns/:id`,
+        campaignById: `GET ${API_V1_PREFIX}/campaigns/:id`,
+        campaignBySlug: `GET ${API_V1_PREFIX}/campaigns/by-slug/:slug`,
         createCampaign: `POST ${API_V1_PREFIX}/campaigns`,
         updateCampaign: `PUT ${API_V1_PREFIX}/campaigns/:id`,
         deleteCampaign: `DELETE ${API_V1_PREFIX}/campaigns/:id`,
@@ -442,6 +464,14 @@ export function createApp(options = {}) {
     return res.json(campaign);
   }
 
+  function getCampaignBySlug(req, res) {
+    const campaign = campaignRepository.getBySlug(req.params.slug);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+    return res.json(campaign);
+  }
+
   function createCampaign(req, res) {
     const errors = validateCampaignPayload(req.body, { partial: false });
     if (errors.length > 0) {
@@ -451,6 +481,27 @@ export function createApp(options = {}) {
       });
     }
 
+    const { name, slug, description, rewardPerAction, startDate, endDate } = req.body;
+    try {
+      const campaign = campaignRepository.create({
+        name,
+        slug: slug || undefined,
+        description: description || '',
+        rewardPerAction: rewardPerAction ?? 0,
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
+      });
+      shortCache.clear();
+      return res.status(201).json(campaign);
+    } catch (error) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        return res.status(409).json({
+          error: 'Slug already exists',
+          details: ['A campaign with this slug already exists'],
+        });
+      }
+      throw error;
+    }
     const { name, description, rewardPerAction, startDate, endDate } = req.body;
     const campaign = campaignRepository.create({
       name,
@@ -562,6 +613,7 @@ export function createApp(options = {}) {
     app.get(prefix, rateLimiter, apiInfo);
     app.get(`${prefix}/config`, rateLimiter, getPublicConfig);
     app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
+    app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/audit-logs`, rateLimiter, requireApiKey, listAuditLogs);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);

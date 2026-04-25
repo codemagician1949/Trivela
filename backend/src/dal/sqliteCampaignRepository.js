@@ -4,6 +4,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaigns (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   name              TEXT    NOT NULL,
+  slug              TEXT    NOT NULL UNIQUE,
   description       TEXT    NOT NULL DEFAULT '',
   active            INTEGER NOT NULL DEFAULT 1,
   reward_per_action INTEGER NOT NULL DEFAULT 0,
@@ -27,10 +28,21 @@ export function computeCampaignStatus({ startDate, endDate }) {
   return 'active';
 }
 
+function generateSlug(name) {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function rowToCampaign(row) {
   const campaign = {
     id: String(row.id),
     name: row.name,
+    slug: row.slug,
     description: row.description,
     active: row.active === 1,
     rewardPerAction: row.reward_per_action,
@@ -61,6 +73,7 @@ export function createSqliteCampaignRepository({
     const count = db.prepare('SELECT COUNT(*) AS n FROM campaigns').get().n;
     if (count === 0) {
       const insert = db.prepare(
+        'INSERT INTO campaigns (name, slug, description, active, reward_per_action, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         'INSERT INTO campaigns (name, description, active, reward_per_action, start_date, end_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       );
       const insertMany = db.transaction((rows) => {
@@ -68,6 +81,7 @@ export function createSqliteCampaignRepository({
           const createdAt = row.createdAt ?? new Date().toISOString();
           insert.run(
             row.name,
+            row.slug ?? generateSlug(row.name),
             row.description ?? '',
             row.active ? 1 : 0,
             row.rewardPerAction ?? 0,
@@ -122,8 +136,19 @@ export function createSqliteCampaignRepository({
     return row ? rowToCampaign(row) : undefined;
   }
 
-  function create({ name, description = '', rewardPerAction = 0, startDate = null, endDate = null }) {
+  function getBySlug(slug) {
+    const row = db.prepare('SELECT * FROM campaigns WHERE slug = ?').get(slug);
+    return row ? rowToCampaign(row) : undefined;
+  }
+
+  function create({ name, slug, description = '', rewardPerAction = 0, startDate = null, endDate = null }) {
     const createdAt = new Date().toISOString();
+    const finalSlug = slug ?? generateSlug(name);
+    const info = db
+      .prepare(
+        'INSERT INTO campaigns (name, slug, description, active, reward_per_action, start_date, end_date, created_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
+      )
+      .run(name, finalSlug, description, rewardPerAction, startDate, endDate, createdAt);
     const updatedAt = createdAt;
     const info = db
       .prepare(
@@ -175,6 +200,7 @@ export function createSqliteCampaignRepository({
   return {
     list,
     getById,
+    getBySlug,
     create,
     update,
     delete: remove,

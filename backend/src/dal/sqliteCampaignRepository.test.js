@@ -30,6 +30,68 @@ test('sqlite campaign repository lists, filters, and searches campaigns', () => 
   assert.equal(repository.list({ q: 'builder' }).length, 1);
 });
 
+test('sqlite campaign repository generates slug from name', () => {
+  const repository = createSqliteCampaignRepository();
+
+  const created = repository.create({
+    name: 'My Awesome Campaign!',
+    description: 'Test',
+    rewardPerAction: 10,
+  });
+
+  assert.equal(created.slug, 'my-awesome-campaign');
+});
+
+test('sqlite campaign repository allows explicit slug', () => {
+  const repository = createSqliteCampaignRepository();
+
+  const created = repository.create({
+    name: 'Test Campaign',
+    slug: 'custom-slug',
+    description: 'Test',
+    rewardPerAction: 10,
+  });
+
+  assert.equal(created.slug, 'custom-slug');
+});
+
+test('sqlite campaign repository retrieves campaign by slug', () => {
+  const repository = createSqliteCampaignRepository();
+
+  const created = repository.create({
+    name: 'Slug Test',
+    description: 'Test',
+    rewardPerAction: 10,
+  });
+
+  const retrieved = repository.getBySlug(created.slug);
+  assert.equal(retrieved.id, created.id);
+  assert.equal(retrieved.name, 'Slug Test');
+});
+
+test('sqlite campaign repository rejects duplicate slugs', () => {
+  const repository = createSqliteCampaignRepository();
+
+  repository.create({
+    name: 'First Campaign',
+    slug: 'duplicate-slug',
+    description: 'Test',
+    rewardPerAction: 10,
+  });
+
+  assert.throws(
+    () => {
+      repository.create({
+        name: 'Second Campaign',
+        slug: 'duplicate-slug',
+        description: 'Test',
+        rewardPerAction: 10,
+      });
+    },
+    /UNIQUE constraint failed/,
+  );
+});
+
 test('sqlite campaign repository creates, updates, and deletes campaigns', () => {
   const repository = createSqliteCampaignRepository();
 
