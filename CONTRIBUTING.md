@@ -1,5 +1,7 @@
 # Contributing to Trivela
 
+> 🔤 New to Stellar/Soroban terminology? Check the **[Glossary](docs/GLOSSARY.md)** for quick definitions of XDR, TTL, Soroban RPC, instance storage, and all Trivela-specific terms.
+
 Thank you for considering contributing to Trivela. This project is part of the [Stellar Wave on Drips](https://www.drips.network/wave/stellar) and we welcome contributions across **backend**, **frontend**, and **smart contracts**.
 
 ## How to contribute
