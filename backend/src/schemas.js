@@ -27,6 +27,11 @@ export const campaignCreateSchema = z
     hiddenReason: z.string().nullable().optional(),
     startDate: isoDateOrNull.optional(),
     endDate: isoDateOrNull.optional(),
+    contractId: z
+      .string()
+      .regex(/^C[A-Z2-7]{55}$/, 'contractId must be a valid Stellar contract ID (C...)')
+      .nullable()
+      .optional(),
   })
   .refine(
     (data) => {
@@ -57,6 +62,11 @@ export const campaignUpdateSchema = z
     hiddenReason: z.string().nullable().optional(),
     startDate: isoDateOrNull.optional(),
     endDate: isoDateOrNull.optional(),
+    contractId: z
+      .string()
+      .regex(/^C[A-Z2-7]{55}$/, 'contractId must be a valid Stellar contract ID (C...)')
+      .nullable()
+      .optional(),
   })
   .refine(
     (data) => {

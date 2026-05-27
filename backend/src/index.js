@@ -501,7 +501,7 @@ export async function createApp(options = {}) {
       });
     }
 
-    const { name, slug, description, rewardPerAction, startDate, endDate, featured, hidden, hiddenReason, active } = result.data;
+    const { name, slug, description, rewardPerAction, startDate, endDate, featured, hidden, hiddenReason, active, contractId } = result.data;
     try {
       const campaign = campaignRepository.create({
         name,
@@ -514,6 +514,7 @@ export async function createApp(options = {}) {
         rewardPerAction: rewardPerAction ?? 0,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
+        contractId: contractId ?? null,
       });
       recordAuditEntry(req, {
         action: 'create',
@@ -547,7 +548,7 @@ export async function createApp(options = {}) {
       });
     }
 
-    const { name, description, active, rewardPerAction, startDate, endDate, featured, hidden, hiddenReason } = result.data;
+    const { name, description, active, rewardPerAction, startDate, endDate, featured, hidden, hiddenReason, contractId } = result.data;
     /** @type {Record<string, unknown>} */
     const updateFields = {};
     if (name !== undefined) updateFields.name = name;
@@ -559,6 +560,7 @@ export async function createApp(options = {}) {
     if (endDate !== undefined) updateFields.endDate = endDate;
     if (hidden !== undefined) updateFields.hidden = hidden;
     if (hiddenReason !== undefined) updateFields.hiddenReason = hiddenReason;
+    if (contractId !== undefined) updateFields.contractId = contractId;
 
     const before = campaignRepository.getById(req.params.id);
     if (!before) {

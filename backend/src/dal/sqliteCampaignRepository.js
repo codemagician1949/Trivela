@@ -31,6 +31,7 @@ function rowToCampaign(row) {
     endDate: row.end_date ?? null,
     hidden: row.hidden === 1,
     hiddenReason: row.hidden_reason ?? null,
+    contractId: row.contract_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
   };
@@ -121,20 +122,20 @@ export function createSqliteCampaignRepository({
     return row ? rowToCampaign(row) : undefined;
   }
 
-  function create({ name, slug = undefined, description = '', active = true, rewardPerAction = 0, startDate = null, endDate = null, featured = false, hidden = false, hiddenReason = null }) {
+  function create({ name, slug = undefined, description = '', active = true, rewardPerAction = 0, startDate = null, endDate = null, featured = false, hidden = false, hiddenReason = null, contractId = null }) {
     const createdAt = new Date().toISOString();
     const finalSlug = slug ?? generateSlug(name);
     const info = db
       .prepare(
-        'INSERT INTO campaigns (name, slug, description, active, reward_per_action, start_date, end_date, featured, hidden, hidden_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO campaigns (name, slug, description, active, reward_per_action, start_date, end_date, featured, hidden, hidden_reason, contract_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(name, finalSlug, description, active ? 1 : 0, rewardPerAction, startDate, endDate, featured ? 1 : 0, hidden ? 1 : 0, hiddenReason, createdAt, createdAt);
+      .run(name, finalSlug, description, active ? 1 : 0, rewardPerAction, startDate, endDate, featured ? 1 : 0, hidden ? 1 : 0, hiddenReason, contractId, createdAt, createdAt);
 
     return getById(info.lastInsertRowid);
   }
 
   function update(id, fields) {
-    const allowed = ['name', 'description', 'active', 'rewardPerAction', 'startDate', 'endDate', 'featured', 'hidden', 'hiddenReason'];
+    const allowed = ['name', 'description', 'active', 'rewardPerAction', 'startDate', 'endDate', 'featured', 'hidden', 'hiddenReason', 'contractId'];
     const columnMap = {
       name: 'name',
       description: 'description',
@@ -145,6 +146,7 @@ export function createSqliteCampaignRepository({
       endDate: 'end_date',
       hidden: 'hidden',
       hiddenReason: 'hidden_reason',
+      contractId: 'contract_id',
     };
     const booleanFields = new Set(['active', 'featured', 'hidden']);
     const sets = [];
