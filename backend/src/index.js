@@ -6,9 +6,11 @@
 import cors from 'cors';
 import express from 'express';
 import compression from 'compression';
+import multer from 'multer';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Redis from 'ioredis';
-import createApiKeyAuth from './middleware/apiKeyAuth.js';
+import createApiKeyAuth, { createMasterKeyAuth } from './middleware/apiKeyAuth.js';
 import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
 import requestLogger, { log } from './middleware/logger.js';
 import requestId from './middleware/requestId.js';
@@ -26,8 +28,11 @@ import {
   campaignCreateSchema,
   campaignUpdateSchema,
   cursorBodySchema,
+  apiKeyCreateSchema,
   formatZodErrors,
 } from './schemas.js';
+import { createStorageAdapter } from './storage/index.js';
+import { uploadCampaignImage, validateImageUpload, MAX_IMAGE_SIZE_BYTES } from './services/imageUpload.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -80,7 +85,7 @@ function createCorsOptions(allowedOrigins) {
     maxAge: 86400,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key'],
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
   };
 
   if (allowedOrigins.includes('*')) {
@@ -182,6 +187,14 @@ export async function createApp(options = {}) {
   const auditLogRepository = dal.auditLogs;
   const webhookRepository = dal.webhooks;
   const referralRepository = dal.referrals;
+  const apiKeyRepository = dal.apiKeys;
+  const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
+    options.storageAdapter ?? createStorageAdapter(process.env)
+  );
+  const imageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
+  });
   const webhookService = new WebhookService(webhookRepository, {
     fetchImpl,
     logger: log,
@@ -214,6 +227,10 @@ export async function createApp(options = {}) {
 
   const requireApiKey = createApiKeyAuth({
     apiKeys: /** @type {string} */ (options.apiKeys) ?? /** @type {string} */ (options.apiKey) ?? process.env.TRIVELA_API_KEYS ?? process.env.TRIVELA_API_KEY ?? '',
+    apiKeyRepository: options.apiKeyRepository ?? apiKeyRepository,
+  });
+  const requireMasterKey = createMasterKeyAuth({
+    masterKey: /** @type {string} */ (options.masterKey) ?? process.env.TRIVELA_MASTER_KEY ?? '',
   });
 
   let rateLimitStore = null;
@@ -248,6 +265,11 @@ export async function createApp(options = {}) {
   app.use(securityHeaders);
   app.use(requestLogger);
   app.use(express.json({ limit: jsonBodyLimit }));
+
+  const uploadDir = process.env.UPLOAD_DIR ?? './uploads';
+  if ((process.env.STORAGE_BACKEND ?? 'local') === 'local') {
+    app.use('/uploads', express.static(uploadDir));
+  }
   app.use((/** @type {any} */ err, /** @type {import('express').Request} */ _req, /** @type {import('express').Response} */ res, /** @type {import('express').NextFunction} */ next) => {
     if (err?.type === 'entity.too.large') {
       return res.status(413).json({ error: 'Request body too large', code: 'PAYLOAD_TOO_LARGE' });
@@ -497,7 +519,10 @@ export async function createApp(options = {}) {
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
     const order = req.query.order === 'asc' ? 'asc' : req.query.order === 'desc' ? 'desc' : undefined;
-    const items = campaignRepository.list({ active: activeFilter, q, sort, order });
+    const category = typeof req.query.category === 'string' ? req.query.category.trim() : undefined;
+    const tagsRaw = typeof req.query.tags === 'string' ? req.query.tags.trim() : '';
+    const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
+    const items = campaignRepository.list({ active: activeFilter, q, sort, order, category, tags });
     const payload = paginateItems(items, req.query);
     shortCache.set(cacheKey, {
       expiresAt: Date.now() + shortCacheTtlMs,
@@ -535,7 +560,10 @@ export async function createApp(options = {}) {
       });
     }
 
-    const { name, slug, description, rewardPerAction, referralBonusPoints, startDate, endDate, featured, hidden, hiddenReason, active } = result.data;
+    const {
+      name, slug, description, rewardPerAction, referralBonusPoints, startDate, endDate,
+      featured, hidden, hiddenReason, active, contractId, imageUrl, tags, category,
+    } = result.data;
     try {
       const campaign = campaignRepository.create({
         name,
@@ -550,6 +578,9 @@ export async function createApp(options = {}) {
         startDate: startDate ?? null,
         endDate: endDate ?? null,
         contractId: contractId ?? null,
+        imageUrl: imageUrl ?? null,
+        tags: tags ?? [],
+        category: category ?? null,
       });
       recordAuditEntry(req, {
         action: 'create',
@@ -571,6 +602,13 @@ export async function createApp(options = {}) {
       shortCache.clear();
       return res.status(201).json(campaign);
     } catch (error) {
+      if (/** @type {any} */ (error).message?.includes('Tag')
+        || /** @type {any} */ (error).message?.includes('Category')) {
+        return res.status(400).json({
+          error: /** @type {Error} */ (error).message,
+          code: 'VALIDATION_ERROR',
+        });
+      }
       if (/** @type {any} */ (error).message?.includes('UNIQUE constraint failed')) {
         return res.status(409).json({
           error: 'Slug already exists',
@@ -593,7 +631,10 @@ export async function createApp(options = {}) {
       });
     }
 
-    const { name, description, active, rewardPerAction, referralBonusPoints, startDate, endDate, featured, hidden, hiddenReason } = result.data;
+    const {
+      name, description, active, rewardPerAction, referralBonusPoints, startDate, endDate,
+      featured, hidden, hiddenReason, contractId, imageUrl, tags, category,
+    } = result.data;
     /** @type {Record<string, unknown>} */
     const updateFields = {};
     if (name !== undefined) updateFields.name = name;
@@ -607,13 +648,29 @@ export async function createApp(options = {}) {
     if (hidden !== undefined) updateFields.hidden = hidden;
     if (hiddenReason !== undefined) updateFields.hiddenReason = hiddenReason;
     if (contractId !== undefined) updateFields.contractId = contractId;
+    if (imageUrl !== undefined) updateFields.imageUrl = imageUrl;
+    if (tags !== undefined) updateFields.tags = tags;
+    if (category !== undefined) updateFields.category = category;
 
     const before = campaignRepository.getById(req.params.id);
     if (!before) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
 
-    const campaign = campaignRepository.update(req.params.id, updateFields);
+    let campaign;
+    try {
+      campaign = campaignRepository.update(req.params.id, updateFields);
+    } catch (error) {
+      if (/** @type {any} */ (error).message?.includes('Tag')
+        || /** @type {any} */ (error).message?.includes('Category')) {
+        return res.status(400).json({
+          error: /** @type {Error} */ (error).message,
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      throw error;
+    }
+
     if (!campaign) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
@@ -728,20 +785,177 @@ export async function createApp(options = {}) {
     });
   }
 
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listCategories(_req, res) {
+    const categories = campaignRepository.listCategories?.() ?? [];
+    return res.json({ data: categories });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listTags(_req, res) {
+    const tags = campaignRepository.listTags?.() ?? [];
+    return res.json({ data: tags });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  async function uploadCampaignImageHandler(req, res) {
+    const campaign = campaignRepository.getById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    const file = /** @type {Express.Multer.File | undefined} */ (req.file);
+    const validation = validateImageUpload({
+      buffer: file?.buffer,
+      mimetype: file?.mimetype ?? '',
+      size: file?.size ?? 0,
+      originalname: file?.originalname,
+    });
+
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.error,
+        code: validation.code,
+      });
+    }
+
+    try {
+      const { imageUrl } = await uploadCampaignImage(storageAdapter, {
+        buffer: validation.buffer,
+        mimeType: validation.mimeType,
+        campaignId: campaign.id,
+      });
+
+      const updated = campaignRepository.update(campaign.id, { imageUrl });
+      recordAuditEntry(req, {
+        action: 'update',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before: campaign, after: updated, changes: ['imageUrl'] },
+      });
+
+      shortCache.clear();
+      return res.status(200).json({ imageUrl });
+    } catch (error) {
+      log.error({ err: error, campaignId: campaign.id }, 'Failed to upload campaign image');
+      return res.status(500).json({
+        error: 'Failed to upload image',
+        code: 'UPLOAD_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function createApiKeyHandler(req, res) {
+    const result = apiKeyCreateSchema.safeParse(req.body ?? {});
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Invalid API key payload',
+        code: 'VALIDATION_ERROR',
+        details: formatZodErrors(result.error),
+      });
+    }
+
+    const created = apiKeyRepository.create({
+      label: result.data.label ?? '',
+      expiresAt: result.data.expiresAt ?? null,
+    });
+
+    recordAuditEntry(req, {
+      action: 'create',
+      entity: 'apiKey',
+      entityId: created.key.id,
+      diff: { after: created.key },
+    });
+
+    return res.status(201).json({
+      key: created.rawKey,
+      metadata: created.key,
+    });
+  }
+
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function listApiKeysHandler(_req, res) {
+    const keys = apiKeyRepository.list();
+    return res.json({ data: keys });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function revokeApiKeyHandler(req, res) {
+    const before = apiKeyRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
+    }
+
+    apiKeyRepository.revoke(req.params.id);
+    recordAuditEntry(req, {
+      action: 'revoke',
+      entity: 'apiKey',
+      entityId: req.params.id,
+      diff: { before },
+    });
+
+    return res.status(204).end();
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function rotateApiKeyHandler(req, res) {
+    const rotated = apiKeyRepository.rotate(req.params.id);
+    if (!rotated) {
+      return res.status(404).json({ error: 'API key not found or already revoked', code: 'API_KEY_NOT_FOUND' });
+    }
+
+    recordAuditEntry(req, {
+      action: 'rotate',
+      entity: 'apiKey',
+      entityId: req.params.id,
+      diff: { newKeyId: rotated.key.id },
+    });
+
+    return res.status(200).json({
+      key: rotated.rawKey,
+      metadata: rotated.key,
+    });
+  }
+
   /** @param {string} prefix */
   function registerApiRoutes(prefix) {
     app.get(prefix, rateLimiter, apiInfo);
     app.get(`${prefix}/config`, rateLimiter, getPublicConfig);
     app.get(`${prefix}/explorer`, rateLimiter, getExplorerLinks);
     app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
+    app.get(`${prefix}/categories`, rateLimiter, listCategories);
+    app.get(`${prefix}/tags`, rateLimiter, listTags);
     app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/audit-logs`, rateLimiter, requireApiKey, listAuditLogs);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
     app.post(`${prefix}/indexer/cursor`, rateLimiter, requireApiKey, setIndexerCursorState);
     app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
+    app.post(
+      `${prefix}/campaigns/:id/image`,
+      rateLimiter,
+      requireApiKey,
+      (req, res, next) => {
+        imageUpload.single('image')(req, res, (err) => {
+          if (err?.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'Image must be 5MB or smaller',
+              code: 'FILE_TOO_LARGE',
+            });
+          }
+          if (err) return next(err);
+          return uploadCampaignImageHandler(req, res);
+        });
+      },
+    );
     app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+
+    app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
+    app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
+    app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
+    app.put(`${prefix}/admin/api-keys/:id/rotate`, rateLimiter, requireMasterKey, rotateApiKeyHandler);
 
     // Webhook routes (Issue #287)
     app.post(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {

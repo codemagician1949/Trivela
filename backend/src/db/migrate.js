@@ -74,7 +74,9 @@ export async function runMigrations(db) {
 
     applyMigration();
     ran.push(mod.version);
-    console.log(`  ✓ migration ${mod.version}: ${mod.description ?? file}`);
+    if (process.env.MIGRATE_VERBOSE === '1') {
+      console.log(`  ✓ migration ${mod.version}: ${mod.description ?? file}`);
+    }
   }
 
   return { applied: ran };

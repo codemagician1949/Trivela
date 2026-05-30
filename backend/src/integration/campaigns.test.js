@@ -22,7 +22,7 @@ function createTestApp(options = {}) {
 }
 
 test('GET /api/v1/campaigns returns paginated campaign list', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const response = await request(app).get('/api/v1/campaigns').expect(200);
 
   assert.ok(Array.isArray(response.body.data));
@@ -33,7 +33,7 @@ test('GET /api/v1/campaigns returns paginated campaign list', async () => {
 });
 
 test('GET /api/v1/campaigns/:id returns campaign by id', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const listResponse = await request(app).get('/api/v1/campaigns');
   const campaignId = listResponse.body.data[0].id;
 
@@ -45,7 +45,7 @@ test('GET /api/v1/campaigns/:id returns campaign by id', async () => {
 });
 
 test('GET /api/v1/campaigns/:id returns 404 for non-existent campaign', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const response = await request(app).get('/api/v1/campaigns/999').expect(404);
 
   assert.equal(response.body.error, 'Campaign not found');
@@ -53,7 +53,7 @@ test('GET /api/v1/campaigns/:id returns 404 for non-existent campaign', async ()
 });
 
 test('POST /api/v1/campaigns creates a new campaign without API key when not configured', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const newCampaign = {
     name: 'New Campaign',
     description: 'New description',
@@ -75,7 +75,7 @@ test('POST /api/v1/campaigns creates a new campaign without API key when not con
 });
 
 test('POST /api/v1/campaigns requires API key when configured', async () => {
-  const app = createTestApp({ apiKeys: 'test-key-123' });
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
   const newCampaign = {
     name: 'New Campaign',
     description: 'New description',
@@ -94,7 +94,7 @@ test('POST /api/v1/campaigns requires API key when configured', async () => {
 });
 
 test('POST /api/v1/campaigns validates required fields', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const invalidCampaign = {
     description: 'Missing name and rewardPerAction',
   };
@@ -110,7 +110,7 @@ test('POST /api/v1/campaigns validates required fields', async () => {
 });
 
 test('PUT /api/v1/campaigns/:id updates an existing campaign', async () => {
-  const app = createTestApp({ apiKeys: 'test-key-123' });
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
   const listResponse = await request(app).get('/api/v1/campaigns');
   const campaignId = listResponse.body.data[0].id;
 
@@ -131,7 +131,7 @@ test('PUT /api/v1/campaigns/:id updates an existing campaign', async () => {
 });
 
 test('PUT /api/v1/campaigns/:id returns 404 for non-existent campaign', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const updates = { name: 'Updated' };
 
   const response = await request(app)
@@ -143,7 +143,7 @@ test('PUT /api/v1/campaigns/:id returns 404 for non-existent campaign', async ()
 });
 
 test('DELETE /api/v1/campaigns/:id deletes a campaign', async () => {
-  const app = createTestApp({ apiKeys: 'test-key-123' });
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
   const listResponse = await request(app).get('/api/v1/campaigns');
   const campaignId = listResponse.body.data[0].id;
 
@@ -156,14 +156,14 @@ test('DELETE /api/v1/campaigns/:id deletes a campaign', async () => {
 });
 
 test('DELETE /api/v1/campaigns/:id returns 404 for non-existent campaign', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const response = await request(app).delete('/api/v1/campaigns/999').expect(404);
 
   assert.equal(response.body.error, 'Campaign not found');
 });
 
 test('Campaign CRUD operations maintain data integrity', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
 
   const createResponse = await request(app)
     .post('/api/v1/campaigns')
@@ -192,7 +192,7 @@ test('Campaign CRUD operations maintain data integrity', async () => {
 });
 
 test('API key authentication works with Bearer token', async () => {
-  const app = createTestApp({ apiKeys: 'bearer-test-key' });
+  const app = await createTestApp({ apiKeys: 'bearer-test-key' });
 
   await request(app)
     .post('/api/v1/campaigns')
@@ -205,7 +205,7 @@ test('API key authentication works with Bearer token', async () => {
 });
 
 test('Multiple API keys are supported', async () => {
-  const app = createTestApp({ apiKeys: 'key1,key2,key3' });
+  const app = await createTestApp({ apiKeys: 'key1,key2,key3' });
 
   await request(app)
     .post('/api/v1/campaigns')
@@ -218,7 +218,7 @@ test('Multiple API keys are supported', async () => {
 });
 
 test('Rate limiting headers are present', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const response = await request(app).get('/api/v1/campaigns').expect(200);
 
   assert.ok(response.headers['x-ratelimit-limit']);
@@ -228,7 +228,7 @@ test('Rate limiting headers are present', async () => {
 });
 
 test('CORS headers are set correctly', async () => {
-  const app = createTestApp({
+  const app = await createTestApp({
     corsAllowedOrigins: 'http://localhost:3000',
   });
 
@@ -242,7 +242,7 @@ test('CORS headers are set correctly', async () => {
 });
 
 test('Schema version header is present', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
   const response = await request(app).get('/api/v1/campaigns').expect(200);
 
   assert.ok(response.headers['x-trivela-schema-version']);
@@ -250,7 +250,7 @@ test('Schema version header is present', async () => {
 });
 
 test('Legacy /api routes remain functional', async () => {
-  const app = createTestApp();
+  const app = await createTestApp();
 
   const v1Response = await request(app).get('/api/v1/campaigns').expect(200);
   const legacyResponse = await request(app).get('/api/campaigns').expect(200);

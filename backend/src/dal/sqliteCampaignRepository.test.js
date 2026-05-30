@@ -205,6 +205,8 @@ test('computeCampaignStatus prioritises ended over upcoming', () => {
 
 test('campaign repository attaches computed status to returned campaigns', async () => {
   const repository = await setupTestRepository();
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const past = new Date(Date.now() - 86_400_000).toISOString();
 
   const upcoming = repository.create({
     name: 'Future Campaign',
@@ -325,3 +327,99 @@ test('list includeHidden option exposes hidden campaigns', async () => {
   assert.equal(repository.list().length, 1);
   assert.equal(repository.list({ includeHidden: true }).length, 2);
 });
+
+// #333 — FTS5 search
+test('FTS search supports prefix matching and ranks relevant results first', async () => {
+  const repository = await setupTestRepository();
+
+  repository.create({
+    name: 'Soroban Builder Quest',
+    description: 'Build on Soroban smart contracts',
+    rewardPerAction: 10,
+  });
+  repository.create({
+    name: 'Stellar Wave',
+    description: 'Community rewards program',
+    rewardPerAction: 5,
+  });
+  repository.create({
+    name: 'Unrelated Campaign',
+    description: 'Nothing matching here',
+    rewardPerAction: 1,
+  });
+
+  const prefixResults = repository.list({ q: 'Sor*' });
+  assert.equal(prefixResults.length, 1);
+  assert.match(prefixResults[0].name, /Soroban/);
+
+  const phraseResults = repository.list({ q: '"Stellar Wave"' });
+  assert.equal(phraseResults.length, 1);
+  assert.equal(phraseResults[0].name, 'Stellar Wave');
+
+  const ranked = repository.list({ q: 'Soroban' });
+  assert.ok(ranked.length >= 1);
+  assert.match(ranked[0].name, /Soroban/);
+});
+
+test('empty search query returns all campaigns', async () => {
+  const repository = await setupTestRepository(seedCampaigns());
+  assert.equal(repository.list({ q: '' }).length, 2);
+  assert.equal(repository.list({}).length, 2);
+});
+
+// #334 — tags and categories
+test('campaign repository stores tags and filters by tag', async () => {
+  const repository = await setupTestRepository();
+
+  repository.create({
+    name: 'DeFi Quest',
+    rewardPerAction: 10,
+    tags: ['defi', 'yield'],
+    category: 'DeFi',
+  });
+  repository.create({
+    name: 'NFT Drop',
+    rewardPerAction: 5,
+    tags: ['nft', 'art'],
+    category: 'NFT',
+  });
+
+  assert.equal(repository.list({ tags: ['defi'] }).length, 1);
+  assert.equal(repository.list({ tags: ['nft', 'defi'] }).length, 2);
+  assert.equal(repository.list({ category: 'NFT' }).length, 1);
+});
+
+test('campaign repository rejects invalid tag length', async () => {
+  const repository = await setupTestRepository();
+  const longTag = 'x'.repeat(33);
+
+  assert.throws(
+    () => repository.create({ name: 'Bad Tags', rewardPerAction: 1, tags: [longTag] }),
+    /exceeds maximum length/,
+  );
+});
+
+test('campaign repository rejects invalid category', async () => {
+  const repository = await setupTestRepository();
+
+  assert.throws(
+    () => repository.create({ name: 'Bad Category', rewardPerAction: 1, category: 'Unknown' }),
+    /not in the allowed vocabulary/,
+  );
+});
+
+test('listCategories and listTags return frequency counts', async () => {
+  const repository = await setupTestRepository();
+
+  repository.create({ name: 'A', rewardPerAction: 1, tags: ['defi'], category: 'DeFi' });
+  repository.create({ name: 'B', rewardPerAction: 1, tags: ['defi', 'nft'], category: 'DeFi' });
+  repository.create({ name: 'C', rewardPerAction: 1, tags: ['nft'], category: 'NFT' });
+
+  const categories = repository.listCategories();
+  assert.ok(categories.some((c) => c.name === 'DeFi' && c.count === 2));
+
+  const tags = repository.listTags();
+  assert.ok(tags.some((t) => t.name === 'defi' && t.count === 2));
+  assert.ok(tags.length <= 50);
+});
+
