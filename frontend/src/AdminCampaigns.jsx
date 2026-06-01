@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Header from './components/Header';
+import PageMeta from './components/PageMeta';
 import CreateCampaign from './CreateCampaign';
 import AdminControlPanel from './components/AdminControlPanel';
 import AllowlistUpload from './components/AllowlistUpload';
@@ -45,6 +47,11 @@ export default function AdminCampaigns({
 
   return (
     <div className="landing">
+      <PageMeta
+        title="Admin campaigns | Trivela"
+        description="Manage Trivela campaigns, on-chain controls, and operator analytics."
+        path="/admin"
+      />
       <Header
         theme={theme}
         onToggleTheme={onToggleTheme}
@@ -83,6 +90,20 @@ export default function AdminCampaigns({
 
           <CreateCampaign campaigns={campaigns} onCampaignCreated={loadCampaigns} />
 
+          {campaigns.length > 0 ? (
+            <section className="section admin-analytics-links">
+              <h3 className="section-title">Campaign analytics</h3>
+              <ul className="admin-analytics-list">
+                {campaigns.map((campaign) => (
+                  <li key={campaign.id}>
+                    <Link to={`/admin/campaigns/${campaign.id}/analytics`} className="admin-analytics-link">
+                      {campaign.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {/* #294 — Merkle allowlist generator. Computes the tree
               client-side; admin pastes the root into the on-chain
               setter and distributes the proofs JSON to participants. */}

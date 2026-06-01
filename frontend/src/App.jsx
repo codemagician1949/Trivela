@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import Landing from './Landing';
 import CampaignDetail from './CampaignDetail';
 import CampaignLeaderboard from './CampaignLeaderboard';
+import CampaignAnalytics from './CampaignAnalytics';
 import AdminCampaigns from './AdminCampaigns';
 import About from './About';
+import PageMeta from './components/PageMeta';
 import TransactionHistory from './TransactionHistory';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
@@ -135,8 +137,13 @@ export default function App() {
     }
   };
 
+  const location = useLocation();
+  const defaultPath = location.pathname || '/';
+
   return (
-    <Routes>
+    <>
+      <PageMeta path={defaultPath} />
+      <Routes>
       <Route
         path="/"
         element={
@@ -200,6 +207,23 @@ export default function App() {
         }
       />
       <Route
+        path="/admin/campaigns/:id/analytics"
+        element={
+          <CampaignAnalytics
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            stellarNetwork={runtimeConfig.stellar.network}
+            onChangeStellarNetwork={handleChangeStellarNetwork}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
+          />
+        }
+      />
+      <Route
         path="/admin"
         element={
           <AdminCampaigns
@@ -233,6 +257,8 @@ export default function App() {
           />
         }
       />
+      </Routes>
+    </>
       {/* #295 — Per-wallet transaction history. Renders empty / loading
           / error states inline so the page never depends on the caller
           to wrap. */}
