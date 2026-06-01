@@ -7,9 +7,22 @@ function truncateWalletAddress(walletAddress) {
 }
 
 const NAV_LINKS = [
-  { href: 'https://github.com/FinesseStudioLab/Trivela', label: 'GitHub' },
-  { href: 'https://github.com/FinesseStudioLab/Trivela/issues', label: 'Contribute' },
-  { href: 'https://developers.stellar.org/docs', label: 'Stellar' },
+  {
+    href: '/api-docs.html',
+    label: 'API Docs',
+  },
+  {
+    href: 'https://github.com/FinesseStudioLab/Trivela',
+    label: 'GitHub',
+  },
+  {
+    href: 'https://github.com/FinesseStudioLab/Trivela/issues',
+    label: 'Contribute',
+  },
+  {
+    href: 'https://developers.stellar.org/docs',
+    label: 'Stellar',
+  },
 ];
 
 export default function Header({
