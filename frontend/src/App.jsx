@@ -7,6 +7,7 @@ import CampaignAnalytics from './CampaignAnalytics';
 import AdminCampaigns from './AdminCampaigns';
 import About from './About';
 import PageMeta from './components/PageMeta';
+import TransactionHistory from './TransactionHistory';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -258,5 +259,26 @@ export default function App() {
       />
       </Routes>
     </>
+      {/* #295 — Per-wallet transaction history. Renders empty / loading
+          / error states inline so the page never depends on the caller
+          to wrap. */}
+      <Route
+        path="/history"
+        element={
+          <TransactionHistory
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            stellarNetwork={runtimeConfig.stellar.network}
+            onChangeStellarNetwork={handleChangeStellarNetwork}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
+          />
+        }
+      />
+    </Routes>
   );
 }

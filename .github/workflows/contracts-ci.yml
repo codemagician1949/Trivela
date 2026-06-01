@@ -51,6 +51,22 @@ jobs:
       - name: Build Soroban WASM artifacts
         run: cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p trivela-campaign-contract
 
+      - name: Install nightly toolchain for cargo-fuzz (optional)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz (optional)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build campaign fuzz target (optional)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        working-directory: contracts/campaign
+        run: cargo +nightly fuzz build
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

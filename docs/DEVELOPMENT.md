@@ -89,3 +89,40 @@ npm run test:frontend
 ```
 
 Tests don't require real contract IDs or RPC endpoints.
+
+## Load testing
+
+The repo ships a [k6](https://k6.io/) suite under [`load-tests/`](../load-tests/README.md) for validating
+backend performance against the project SLOs (`p95 < 200ms`, error rate `< 1%`).
+
+```bash
+# install k6 (once)
+brew install k6           # or follow https://grafana.com/docs/k6/latest/set-up/install-k6/
+
+# start the backend with an API key for write scenarios
+TRIVELA_API_KEY=sk_dev_local npm run dev:backend
+
+# run a scenario (defaults to read-campaigns)
+npm run load-test
+LOAD_SCENARIO=write-campaigns  API_KEY=sk_dev_local npm run load-test
+LOAD_SCENARIO=mixed-read-write API_KEY=sk_dev_local npm run load-test
+```
+
+`npm run load-test` shells into `scripts/run-load-test.sh`, which picks the
+right scenario file and forwards extra flags (`-- --vus 50 --duration 1m`)
+straight to `k6 run`.
+
+### Reading the output
+
+k6 prints a summary block after each run. The two gating metrics:
+
+- `http_req_duration{expected_response:true}: p(95) < 200ms` — 95th percentile
+  of successful responses. Tune `LATENCY_P95_MS` to relax the gate while
+  investigating a regression.
+- `http_req_failed: rate < 0.01` — share of non-2xx responses. Spikes are
+  almost always the rate limiter (`RATE_LIMIT_*` env vars).
+
+A non-zero exit means a threshold was breached. The CI workflow
+(`.github/workflows/load-test.yml`) is `workflow_dispatch`-only — run it
+from the Actions tab against staging when you need a higher-fidelity
+report than your local machine can produce.

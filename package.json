@@ -19,8 +19,10 @@
     "contracts:build-bindings": "node scripts/build-bindings.js",
     "env:validate": "node ./scripts/validate-env.mjs",
     "labels:sync": "node ./scripts/sync-github-labels.js",
+    "load-test": "bash ./scripts/run-load-test.sh",
     "format": "prettier --write \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
-    "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\""
+    "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
+    "merkle:generate": "node scripts/generate-merkle.mjs"
   },
   "workspaces": [
     "backend",

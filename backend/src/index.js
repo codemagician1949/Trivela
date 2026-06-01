@@ -3,6 +3,13 @@
  * Serves campaign data, health, and Stellar/Soroban RPC proxy for the frontend.
  */
 
+// #288 — OpenTelemetry SDK MUST initialize before any `http` /
+// `express` import so the auto-instrumentation patches catch them.
+// `initTracing()` is fire-and-forget; the API/SDK still works as a
+// no-op when the optional OTel deps aren't installed.
+import { initTracing, traceparentMiddleware, shutdownTracing } from './tracing.js';
+void initTracing();
+
 import cors from 'cors';
 import express from 'express';
 import compression from 'compression';
@@ -86,7 +93,11 @@ function createCorsOptions(allowedOrigins) {
     maxAge: 86400,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+    // #288 — accept `traceparent` from instrumented frontends and
+    // expose it on responses so the browser can stitch its own
+    // spans into the same OpenTelemetry trace.
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'traceparent'],
+    exposedHeaders: ['traceparent'],
   };
 
   if (allowedOrigins.includes('*')) {
@@ -189,6 +200,7 @@ export async function createApp(options = {}) {
   const webhookRepository = dal.webhooks;
   const referralRepository = dal.referrals;
   const apiKeyRepository = dal.apiKeys;
+  const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
   );
@@ -264,6 +276,7 @@ export async function createApp(options = {}) {
   app.use(compression({ threshold: 1024 }));
   app.use(cors(createCorsOptions(allowedOrigins)));
   app.use(securityHeaders);
+  app.use(traceparentMiddleware());
   app.use(requestLogger);
   app.use(express.json({ limit: jsonBodyLimit }));
 
@@ -308,6 +321,19 @@ export async function createApp(options = {}) {
     return next();
   });
 
+  const jobMaxAttempts = normalizePositiveInteger(
+    /** @type {any} */ (options.jobMaxAttempts) ?? process.env.JOB_MAX_RETRIES,
+    5,
+  );
+  const jobBaseDelayMs = normalizePositiveInteger(
+    /** @type {any} */ (options.jobBaseDelayMs) ?? process.env.JOB_BASE_DELAY_MS,
+    1_000,
+  );
+  const jobMaxDelayMs = normalizePositiveInteger(
+    /** @type {any} */ (options.jobMaxDelayMs) ?? process.env.JOB_MAX_DELAY_MS,
+    30_000,
+  );
+
   const jobRunner = createJobRunner({
     handlers: {
       async rpc_health_poll() {
@@ -329,6 +355,10 @@ export async function createApp(options = {}) {
       },
     },
     logger: log,
+    deadLetter: failedJobRepository,
+    defaultMaxAttempts: jobMaxAttempts,
+    defaultBaseDelayMs: jobBaseDelayMs,
+    defaultMaxDelayMs: jobMaxDelayMs,
   });
 
   if (!options.disableJobs && rpcPollIntervalMs > 0) {
@@ -937,6 +967,47 @@ export async function createApp(options = {}) {
     });
   }
 
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listFailedJobsHandler(req, res) {
+    const limitRaw = Number.parseInt(/** @type {string} */ (req.query.limit), 10);
+    const offsetRaw = Number.parseInt(/** @type {string} */ (req.query.offset), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 100;
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
+
+    const items = failedJobRepository.list({ limit, offset });
+    const total = failedJobRepository.count();
+
+    return res.json({
+      data: items,
+      pagination: { total, count: items.length, limit, offset },
+    });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function retryFailedJobHandler(req, res) {
+    const entry = failedJobRepository.getById(req.params.id);
+    if (!entry) {
+      return res
+        .status(404)
+        .json({ error: 'Failed job not found', code: 'FAILED_JOB_NOT_FOUND' });
+    }
+
+    jobRunner.enqueue(entry.type, entry.payload);
+    failedJobRepository.remove(entry.id);
+
+    recordAuditEntry(req, {
+      action: 'retry',
+      entity: 'failedJob',
+      entityId: entry.id,
+      diff: { type: entry.type, attempts: entry.attempts },
+    });
+
+    return res.status(202).json({
+      requeued: true,
+      job: { id: entry.id, type: entry.type },
+    });
+  }
+
   /** @param {string} prefix */
   function registerApiRoutes(prefix) {
     app.get(prefix, rateLimiter, apiInfo);
@@ -976,6 +1047,10 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
     app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
     app.put(`${prefix}/admin/api-keys/:id/rotate`, rateLimiter, requireMasterKey, rotateApiKeyHandler);
+
+    // Job dead-letter inspection / requeue (Issue #286)
+    app.get(`${prefix}/jobs/failed`, rateLimiter, requireApiKey, listFailedJobsHandler);
+    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, requireApiKey, retryFailedJobHandler);
 
     // Webhook routes (Issue #287)
     app.post(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
