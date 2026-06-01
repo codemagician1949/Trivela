@@ -9,8 +9,6 @@ import About from './About';
 import PageMeta from './components/PageMeta';
 import TransactionHistory from './TransactionHistory';
 import EmbedCampaign from './pages/EmbedCampaign';
-import EmbedCampaignCard from './EmbedCampaignCard.jsx';
-import OnboardingTour from './components/OnboardingTour.jsx';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -22,7 +20,6 @@ import {
   normalizeError,
 } from './stellar';
 import { logSafeEvent } from './lib/safeAnalytics';
-import { useTour } from './hooks/useTour.js';
 
 export default function App() {
   const [theme, setTheme] = useState(() => getPreferredTheme());
@@ -34,7 +31,6 @@ export default function App() {
   const [isWalletBalanceLoading, setIsWalletBalanceLoading] = useState(false);
   const [isRewardsPointsLoading, setIsRewardsPointsLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
-  const { shouldShow: showTour, markComplete: completeTour, restartTour } = useTour();
 
   useEffect(() => {
     applyTheme(theme);
@@ -78,7 +74,6 @@ export default function App() {
     setIsWalletBalanceLoading(true);
     setIsRewardsPointsLoading(true);
 
-    // 1. Load native XLM balance (Horizon)
     try {
       const balance = await fetchWalletBalance(address);
       setWalletBalance(formatWalletBalance(balance));
@@ -88,7 +83,6 @@ export default function App() {
       setIsWalletBalanceLoading(false);
     }
 
-    // 2. Load rewards points (Soroban RPC)
     try {
       const points = await fetchRewardsBalance(address);
       setRewardsPoints(formatPoints(points));
@@ -279,7 +273,6 @@ export default function App() {
         />
         <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
       </Routes>
-      {showTour && <OnboardingTour onComplete={completeTour} />}
     </>
   );
 }
