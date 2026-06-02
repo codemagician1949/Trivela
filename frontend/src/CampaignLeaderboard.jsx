@@ -151,7 +151,7 @@ export default function CampaignLeaderboard({
       setRankCopied(true);
       setTimeout(() => setRankCopied(false), 2000);
     } catch (_) {}
-  };
+      // Clipboard failures are non-fatal and do not require user-facing action
 
   const isMyRow = (address) =>
     walletAddress && address?.toLowerCase() === walletAddress.toLowerCase();
