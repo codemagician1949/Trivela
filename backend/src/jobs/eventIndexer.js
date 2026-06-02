@@ -6,13 +6,23 @@
  * reconstruct user balances at that point using Horizon getLedgerEntries.
  */
 
-export function createEventIndexer({ db, rpcPool, logger = console } = {}) {
+export function createEventIndexer({
+  db,
+  rpcPool,
+  logger = console,
+  // Bonus (in reward units) auto-credited to a referrer when an on-chain
+  // `referred` event is indexed (issue #455). Defaults to 0 so deployments
+  // opt in explicitly.
+  referralBonus = 0,
+} = {}) {
   const handlers = {
     credit: handleCreditEvent,
     claim: handleClaimEvent,
     snapshot: handleSnapshotEvent,
     vcredit: handleVestedCreditEvent,
     vclaim: handleVestedClaimEvent,
+    referred: (event, database) =>
+      handleReferredEvent(event, database, referralBonus),
   };
 
   async function processEvent(event) {
@@ -85,6 +95,46 @@ async function handleClaimEvent(event, db) {
  *   2. Fetch all `BALANCE` storage entries at `snapshot_ledger` from Horizon.
  *   3. Persist the reconstructed balances to `snapshot_balances`.
  */
+/**
+ * Index a `referred` event emitted by the campaign contract (issue #455).
+ *
+ * Topics are `(referred, referee, referrer)`. The contract has already
+ * validated that the referrer is a registered participant and is not the
+ * referee, so the indexer can trust the edge and auto-credit the referrer's
+ * bonus without trusting the frontend.
+ *
+ * The credit mirrors `handleCreditEvent`: the referrer's balance is bumped and
+ * a `credit_events` row records the on-chain reference. Recording is idempotent
+ * per (referrer, referee) so re-indexing the same event does not double-credit.
+ */
+async function handleReferredEvent(event, db, referralBonus = 0) {
+  const referee = event.topic?.[1];
+  const referrer = event.topic?.[2];
+  if (!referee || !referrer) return;
+
+  // Record the referral edge first; the UNIQUE(referee) guard makes replays
+  // a no-op and lets us skip the credit when nothing was inserted.
+  const recorded = await db.run(
+    `INSERT OR IGNORE INTO referral_credits (referee, referrer, ledger, tx_hash)
+     VALUES (?, ?, ?, ?)`,
+    [referee, referrer, event.ledger, event.txHash],
+  );
+  if (recorded && recorded.changes === 0) return;
+
+  const bonus = BigInt(referralBonus);
+  if (bonus <= 0n) return;
+
+  await db.run(
+    `INSERT OR IGNORE INTO balances (user) VALUES (?)
+     ON CONFLICT(user) DO UPDATE SET balance = balance + ?`,
+    [referrer, bonus.toString()],
+  );
+  await db.run(
+    `INSERT INTO credit_events (user, amount, ledger, tx_hash) VALUES (?, ?, ?, ?)`,
+    [referrer, bonus.toString(), event.ledger, event.txHash],
+  );
+}
+
 async function handleSnapshotEvent(event, db) {
   const snapshotId = BigInt(event.topic?.[1] ?? 0);
   const snapshotLedger = BigInt(event.data ?? 0);
