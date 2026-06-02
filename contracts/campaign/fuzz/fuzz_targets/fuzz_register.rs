@@ -134,7 +134,7 @@ fn run(data: &[u8]) {
                 let prev_count = client.get_participant_count();
                 let was_registered = registered[user_idx];
 
-                let result = client.try_register(user, &leaf, &proof);
+                let result = client.try_register(user, &leaf, &proof, &None);
                 let new_count = client.get_participant_count();
 
                 // ── Invariant: time window enforcement ───────────────────

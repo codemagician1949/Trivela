@@ -5,6 +5,7 @@
 //!
 //! Events:
 //! - `register`: topics `(register, participant)`, data `()`
+//! - `referred`: topics `(referred, participant, referrer)`, data `()`
 //! - `active`: topics `(active,)`, data `active: bool`
 //! - `window`: topics `(window,)`, data `(start: u64, end: u64)`
 //! - `maxcap`: topics `(maxcap,)`, data `max_cap: u64`
@@ -50,6 +51,8 @@ pub enum Error {
     InvalidAdminNonce = 106,
     InvalidWindow = 107,
     NoPendingAdmin = 108,
+    SelfReferral = 109,
+    ReferrerNotRegistered = 110,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -88,6 +91,17 @@ const SET_ACTIVE_EVENT: Symbol = symbol_short!("active");
 const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
 const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
+
+// ── On-chain referral tracking (issue #455) ──────────────────────────────────
+//
+// `(REFERRAL, referee) -> referrer` maps each referred participant to the
+// already-registered participant who referred them. `(REFERRAL_COUNT, referrer)
+// -> u64` keeps a running tally so the `referral_count` view is O(1) rather than
+// scanning every referee. Both live in PERSISTENT storage alongside the
+// per-participant records they mirror (see #280).
+const REFERRAL: Symbol = symbol_short!("referral");
+const REFERRAL_COUNT: Symbol = symbol_short!("refcnt");
+const REFERRED_EVENT: Symbol = symbol_short!("referred");
 
 // #280 — TTL thresholds for the per-participant persistent storage
 // entries. Values are deliberately modest in this initial migration:
@@ -288,12 +302,23 @@ impl CampaignContract {
     ///           `leaf` to the stored root.  Pass an empty `Vec` when no root
     ///           is configured.
     ///
+    /// `referrer` – optional address of an already-registered participant who
+    ///           referred this registrant (issue #455). When supplied, the
+    ///           contract records `(referee -> referrer)`, increments the
+    ///           referrer's tally, and emits a `referred` event so the backend
+    ///           indexer can credit the referral bonus trustlessly. A referrer
+    ///           cannot refer themselves (`Error::SelfReferral`) and must
+    ///           already be registered (`Error::ReferrerNotRegistered`).
+    ///           Referral is recorded only on first registration; passing a
+    ///           referrer on a repeat call is a no-op.
+    ///
     /// Returns `true` on first registration, `false` if already registered.
     pub fn register(
         env: Env,
         participant: Address,
         leaf: BytesN<32>,
         proof: Vec<BytesN<32>>,
+        referrer: Option<Address>,
     ) -> Result<bool, Error> {
         participant.require_auth();
 
@@ -337,6 +362,24 @@ impl CampaignContract {
             return Ok(false);
         }
 
+        // On-chain referral validation (issue #455). A referrer must be an
+        // already-registered participant and cannot be the registrant
+        // themselves. Validated before any state mutation so an invalid
+        // referrer aborts the whole registration atomically.
+        if let Some(referrer) = referrer.clone() {
+            if referrer == participant {
+                return Err(Error::SelfReferral);
+            }
+            let referrer_registered: bool = env
+                .storage()
+                .persistent()
+                .get(&(PARTICIPANT, referrer))
+                .unwrap_or(false);
+            if !referrer_registered {
+                return Err(Error::ReferrerNotRegistered);
+            }
+        }
+
         let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
         if max_cap > 0 {
             let count: u64 = env
@@ -369,7 +412,35 @@ impl CampaignContract {
             .instance()
             .set(&PARTICIPANT_COUNT, &(count + 1));
 
-        env.events().publish((REGISTER_EVENT, participant), ());
+        env.events()
+            .publish((REGISTER_EVENT, participant.clone()), ());
+
+        // Record the referral edge and bump the referrer's tally (issue #455).
+        // Only reached on first-time registration with a validated referrer.
+        if let Some(referrer) = referrer {
+            let referral_key = (REFERRAL, participant.clone());
+            env.storage().persistent().set(&referral_key, &referrer);
+            env.storage().persistent().extend_ttl(
+                &referral_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+
+            let count_key = (REFERRAL_COUNT, referrer.clone());
+            let referral_total: u64 =
+                env.storage().persistent().get(&count_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&count_key, &(referral_total + 1));
+            env.storage().persistent().extend_ttl(
+                &count_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+
+            env.events()
+                .publish((REFERRED_EVENT, participant, referrer), ());
+        }
 
         // Instance storage still holds aggregate state
         // (PARTICIPANT_COUNT, ADMIN, etc.) so keep its TTL fresh
@@ -422,6 +493,22 @@ impl CampaignContract {
             .persistent()
             .get(&(PARTICIPANT, participant))
             .unwrap_or(false)
+    }
+
+    /// Return the referrer recorded for `participant` at registration, or
+    /// `None` if they registered without one (issue #455).
+    pub fn referrer_of(env: Env, participant: Address) -> Option<Address> {
+        env.storage().persistent().get(&(REFERRAL, participant))
+    }
+
+    /// Return how many participants registered with `referrer` as their
+    /// on-chain referrer (issue #455). Defaults to `0` for an address that
+    /// has never referred anyone.
+    pub fn referral_count(env: Env, referrer: Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&(REFERRAL_COUNT, referrer))
+            .unwrap_or(0)
     }
 
     /// Check if campaign is active.

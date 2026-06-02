@@ -65,7 +65,7 @@ fn scenario_a_happy_path() {
 
     // Register all 5 users in the campaign registry.
     for user in &users {
-        assert!(campaign.register(user, &leaf, &proof));
+        assert!(campaign.register(user, &leaf, &proof, &None));
     }
     assert_eq!(campaign.get_participant_count(), 5);
 
@@ -110,7 +110,7 @@ fn scenario_b_paused_rewards() {
 
     let (leaf, proof) = empty_proof(&env);
     for user in &users {
-        campaign.register(user, &leaf, &proof);
+        campaign.register(user, &leaf, &proof, &None);
     }
 
     // Pre-credit before pausing.
@@ -169,13 +169,13 @@ fn scenario_c_cap_reached() {
     let (leaf, proof) = empty_proof(&env);
 
     // First two registrations succeed.
-    assert!(campaign.register(&users[0], &leaf, &proof));
-    assert!(campaign.register(&users[1], &leaf, &proof));
+    assert!(campaign.register(&users[0], &leaf, &proof, &None));
+    assert!(campaign.register(&users[1], &leaf, &proof, &None));
     assert_eq!(campaign.get_participant_count(), 2);
 
     // Third registration hits the cap.
     assert_eq!(
-        campaign.try_register(&users[2], &leaf, &proof),
+        campaign.try_register(&users[2], &leaf, &proof, &None),
         Err(Ok(CampaignError::CapReached))
     );
     assert_eq!(campaign.get_participant_count(), 2);
@@ -217,15 +217,15 @@ fn scenario_d_merkle_allowlist() {
     campaign.set_merkle_root(&admin, &0u64, &root);
 
     // Allowlisted users (alice/bob represented by users[0]/users[1]) register successfully.
-    assert!(campaign.register(&users[0], &leaf_alice, &proof_alice));
-    assert!(campaign.register(&users[1], &leaf_bob, &proof_bob));
+    assert!(campaign.register(&users[0], &leaf_alice, &proof_alice, &None));
+    assert!(campaign.register(&users[1], &leaf_bob, &proof_bob, &None));
     assert_eq!(campaign.get_participant_count(), 2);
 
     // User with an invalid proof is rejected.
     let bad_leaf: BytesN<32> = BytesN::from_array(&env, &[9u8; 32]);
     let empty_pf: SdkVec<BytesN<32>> = SdkVec::new(&env);
     assert_eq!(
-        campaign.try_register(&users[2], &bad_leaf, &empty_pf),
+        campaign.try_register(&users[2], &bad_leaf, &empty_pf, &None),
         Err(Ok(CampaignError::NotInAllowlist))
     );
 
@@ -307,7 +307,7 @@ fn scenario_f_full_feature_integration() {
 
     let (leaf, proof) = empty_proof(&env);
     for user in &users {
-        campaign.register(user, &leaf, &proof);
+        campaign.register(user, &leaf, &proof, &None);
     }
     assert_eq!(campaign.get_participant_count(), 6);
 
