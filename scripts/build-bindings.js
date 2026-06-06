@@ -48,4 +48,10 @@ console.log('Cleaning up temporary directories...');
 fs.rmSync(tempRewardsDir, { recursive: true, force: true });
 fs.rmSync(tempCampaignDir, { recursive: true, force: true });
 
+console.log('Formatting generated bindings...');
+execSync(
+  'npx prettier --write frontend/src/contracts/rewards.ts frontend/src/contracts/campaign.ts',
+  { stdio: 'inherit' },
+);
+
 console.log('TypeScript bindings successfully generated and merged!');
