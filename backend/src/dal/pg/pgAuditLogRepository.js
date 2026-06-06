@@ -1,5 +1,3 @@
-// @ts-check
-//
 // PostgreSQL-backed audit log repository (issue #284). Same interface as
 // `sqliteAuditLogRepository.js`.
 

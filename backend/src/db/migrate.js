@@ -34,7 +34,7 @@ const SCHEMA_VERSION_TABLE = `
 `;
 
 /**
- * @param {Database.Database} db
+ * @param {InstanceType<typeof Database>} db
  * @returns {Set<number>}
  */
 function appliedVersions(db) {
@@ -45,7 +45,7 @@ function appliedVersions(db) {
 
 /**
  * Run all pending migrations against the given database.
- * @param {Database.Database} db
+ * @param {InstanceType<typeof Database>} db
  * @returns {Promise<{ applied: number[] }>}
  */
 export async function runMigrations(db) {

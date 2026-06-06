@@ -19,6 +19,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRateLimiter, createMemoryStore, createRedisStore } from './rateLimit.js';
 
+/**
+ * @param {{ apiKey?: string; ip?: string; method?: string }} [opts]
+ */
 function makeReqRes({ apiKey, ip = '1.1.1.1', method = 'GET' } = {}) {
   const headers = {};
   if (apiKey) headers['x-api-key'] = apiKey;
@@ -137,11 +140,13 @@ test('rateLimit forwards store errors via next(err) instead of crashing the requ
   };
   const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 5, store: explodingStore });
   const { req, res } = makeReqRes();
+  /** @type {Error | undefined} */
   let captured;
   await limiter(req, res, (err) => {
     captured = err;
   });
-  assert.equal(captured?.message, 'store unavailable');
+  assert.ok(captured instanceof Error, 'store error must be forwarded');
+  assert.equal(captured.message, 'store unavailable');
   assert.equal(res.statusCode, 200, 'must not 429 on store failure');
 });
 

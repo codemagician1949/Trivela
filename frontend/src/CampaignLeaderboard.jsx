@@ -13,9 +13,24 @@ function truncateAddress(address) {
 }
 
 function RankMedal({ rank }) {
-  if (rank === 1) return <span className="lb-medal lb-medal-gold" aria-label="1st place">🥇</span>;
-  if (rank === 2) return <span className="lb-medal lb-medal-silver" aria-label="2nd place">🥈</span>;
-  if (rank === 3) return <span className="lb-medal lb-medal-bronze" aria-label="3rd place">🥉</span>;
+  if (rank === 1)
+    return (
+      <span className="lb-medal lb-medal-gold" aria-label="1st place">
+        🥇
+      </span>
+    );
+  if (rank === 2)
+    return (
+      <span className="lb-medal lb-medal-silver" aria-label="2nd place">
+        🥈
+      </span>
+    );
+  if (rank === 3)
+    return (
+      <span className="lb-medal lb-medal-bronze" aria-label="3rd place">
+        🥉
+      </span>
+    );
   return <span className="lb-rank-num">#{rank}</span>;
 }
 
@@ -78,7 +93,9 @@ export default function CampaignLeaderboard({
   useEffect(() => {
     fetch(apiUrl(`/api/v1/campaigns/${id}`))
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data) setCampaign(data); })
+      .then((data) => {
+        if (data) setCampaign(data);
+      })
       .catch(() => {});
   }, [id]);
 
@@ -121,12 +138,23 @@ export default function CampaignLeaderboard({
 
   // Fetch the connected wallet's rank
   useEffect(() => {
-    if (!walletAddress || !id) { setMyRank(null); return; }
+    if (!walletAddress || !id) {
+      setMyRank(null);
+      return;
+    }
 
-    fetch(apiUrl(`/api/v1/campaigns/${id}/leaderboard/rank?wallet=${encodeURIComponent(walletAddress)}`))
+    fetch(
+      apiUrl(
+        `/api/v1/campaigns/${id}/leaderboard/rank?wallet=${encodeURIComponent(walletAddress)}`,
+      ),
+    )
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data) setMyRank(data); })
-      .catch(() => { setMyRank(null); });
+      .then((data) => {
+        if (data) setMyRank(data);
+      })
+      .catch(() => {
+        setMyRank(null);
+      });
   }, [walletAddress, id]);
 
   const handleLoadMore = () => {
@@ -151,7 +179,8 @@ export default function CampaignLeaderboard({
       setRankCopied(true);
       setTimeout(() => setRankCopied(false), 2000);
     } catch (_) {}
-      // Clipboard failures are non-fatal and do not require user-facing action
+    // Clipboard failures are non-fatal and do not require user-facing action
+  };
 
   const isMyRow = (address) =>
     walletAddress && address?.toLowerCase() === walletAddress.toLowerCase();
@@ -184,9 +213,7 @@ export default function CampaignLeaderboard({
             <h1 className="lb-title">
               {campaign?.name ? `${campaign.name} — Leaderboard` : 'Leaderboard'}
             </h1>
-            <p className="lb-subtitle">
-              Participants ranked by reward points earned
-            </p>
+            <p className="lb-subtitle">Participants ranked by reward points earned</p>
           </header>
 
           {/* Connected wallet rank banner */}
@@ -241,11 +268,21 @@ export default function CampaignLeaderboard({
           {/* Table header */}
           <div className="lb-table" role="table" aria-label="Campaign leaderboard">
             <div className="lb-row lb-row-header" role="row">
-              <span className="lb-col-rank" role="columnheader">Rank</span>
-              <span className="lb-col-address" role="columnheader">Wallet</span>
-              <span className="lb-col-points" role="columnheader">Points</span>
-              <span className="lb-col-claimed" role="columnheader">Claimed</span>
-              <span className="lb-col-net" role="columnheader">Net Balance</span>
+              <span className="lb-col-rank" role="columnheader">
+                Rank
+              </span>
+              <span className="lb-col-address" role="columnheader">
+                Wallet
+              </span>
+              <span className="lb-col-points" role="columnheader">
+                Points
+              </span>
+              <span className="lb-col-claimed" role="columnheader">
+                Claimed
+              </span>
+              <span className="lb-col-net" role="columnheader">
+                Net Balance
+              </span>
             </div>
 
             {isLoading ? (
@@ -284,9 +321,7 @@ export default function CampaignLeaderboard({
                   </span>
                   <span className="lb-col-address" role="cell" title={p.walletAddress}>
                     {truncateAddress(p.walletAddress)}
-                    {isMyRow(p.walletAddress) && (
-                      <span className="lb-you-badge">You</span>
-                    )}
+                    {isMyRow(p.walletAddress) && <span className="lb-you-badge">You</span>}
                   </span>
                   <span className="lb-col-points" role="cell">
                     {(p.points ?? 0).toLocaleString()}

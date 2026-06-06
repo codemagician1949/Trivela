@@ -1,5 +1,3 @@
-// @ts-check
-//
 // PostgreSQL-backed campaign repository (issue #284).
 //
 // Implements the same interface as `sqliteCampaignRepository.js` so the

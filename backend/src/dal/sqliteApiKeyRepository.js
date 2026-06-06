@@ -21,7 +21,7 @@ function rowToApiKey(row) {
 }
 
 /**
- * @param {{ db: import('better-sqlite3').Database }} params
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} params
  */
 export function createSqliteApiKeyRepository({ db }) {
   const insertStmt = db.prepare(`

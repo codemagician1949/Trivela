@@ -217,8 +217,6 @@ export async function createApp(options = {}) {
   const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const allowlistRepository = dal.allowlists;
 
-  const requireAdminMasterKey = requireMasterKey;
-
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
   );
@@ -286,6 +284,7 @@ export async function createApp(options = {}) {
   const requireMasterKey = createMasterKeyAuth({
     masterKey: /** @type {string} */ (options.masterKey) ?? process.env.TRIVELA_MASTER_KEY ?? '',
   });
+  const requireAdminMasterKey = requireMasterKey;
 
   let rateLimitStore = null;
   const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;

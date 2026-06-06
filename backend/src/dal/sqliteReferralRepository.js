@@ -1,7 +1,7 @@
 // @ts-check
 
 /**
- * @param {{ db: import('better-sqlite3').Database }} opts
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} opts
  */
 export function createSqliteReferralRepository({ db }) {
   /**
@@ -44,9 +44,8 @@ export function createSqliteReferralRepository({ db }) {
   }
 
   /**
-   * Look up whether a referee has already been attributed to a referrer in a campaign.
+   * List all referrals for a campaign.
    * @param {string|number} campaignId
-   * @param {string} refereeAddress
    */
   function listByCampaign(campaignId) {
     const rows = db

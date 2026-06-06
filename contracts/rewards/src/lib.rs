@@ -39,6 +39,7 @@ pub enum Error {
     NoPendingAdmin = 10,
     InsufficientReserve = 11,
     InvalidRedemptionRate = 12,
+    InvalidAdminNonce = 13,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -124,6 +125,9 @@ const REDEMPTION_RATE: Symbol = symbol_short!("red_rate");
 const REDEMPTION_RESERVE: Symbol = symbol_short!("red_rsrv");
 const REDEEM_EVENT: Symbol = symbol_short!("redeem");
 
+// Admin nonce — incremented on each admin operation to prevent replay attacks.
+const ADMIN_NONCE: Symbol = symbol_short!("anonce");
+
 // ── 2-step admin transfer (issue #281) ───────────────────────────────────────
 // `PENDING_ADMIN` holds an in-flight proposed admin; the new admin must call
 // `accept_admin()` themselves to complete the rotation, eliminating the
@@ -142,6 +146,23 @@ fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
     if &stored_admin != admin {
         return Err(Error::Unauthorized);
     }
+
+    Ok(())
+}
+
+fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: i128) -> Result<(), Error> {
+    admin.require_auth();
+
+    let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+    if &stored_admin != admin {
+        return Err(Error::Unauthorized);
+    }
+
+    let current: i128 = env.storage().instance().get(&ADMIN_NONCE).unwrap_or(0);
+    if nonce != current {
+        return Err(Error::InvalidAdminNonce);
+    }
+    env.storage().instance().set(&ADMIN_NONCE, &(current + 1));
 
     Ok(())
 }
