@@ -12,6 +12,33 @@ contributors.
 
 ---
 
+## 🚀 Live on Stellar Testnet
+
+Both contracts are **deployed and live on Stellar Testnet**, built from the latest `main` and
+verified end-to-end (initialize → credit/balance, initialize → register/participant-count).
+
+| Contract            | Contract ID (Testnet)                                      | Explorer                                                                                                          |
+| ------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Rewards**         | `CB6KYDQ7X2V5B46FU7FKZCRCK5ZEYCHRUHZPVF73RA5M5AAUUBQA6IXZ` | [View ↗](https://stellar.expert/explorer/testnet/contract/CB6KYDQ7X2V5B46FU7FKZCRCK5ZEYCHRUHZPVF73RA5M5AAUUBQA6IXZ) |
+| **Campaign**        | `CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPBQH` | [View ↗](https://stellar.expert/explorer/testnet/contract/CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPBQH) |
+
+- **Network:** Stellar Testnet (`Test SDF Network ; September 2015`)
+- **Deployer (public key):** `GA4S5DDI3M3H37IDZIK422IH7WPBECOATLAOYPKOJFLBYTKHU2BB4M6P`
+- **Soroban RPC:** `https://soroban-testnet.stellar.org`
+
+Wire these into the frontend via `.env.testnet`:
+
+```bash
+VITE_STELLAR_NETWORK=testnet
+VITE_REWARDS_CONTRACT_ID=CB6KYDQ7X2V5B46FU7FKZCRCK5ZEYCHRUHZPVF73RA5M5AAUUBQA6IXZ
+VITE_CAMPAIGN_CONTRACT_ID=CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPBQH
+```
+
+> Testnet deployments are periodically reset by the network. If a contract ID stops resolving,
+> redeploy with `STELLAR_SOURCE=<identity> npm run deploy:testnet` and update the values above.
+
+---
+
 ## What Trivela Does?
 
 - **Campaigns** – Create and manage reward campaigns with on-chain configuration (Soroban).
