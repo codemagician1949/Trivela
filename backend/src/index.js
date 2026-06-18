@@ -51,6 +51,8 @@ import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/a
 import { createEmbedRoute } from './routes/embed.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
+import { createCohortRoutes } from './routes/cohorts.js';
+import { createCohortService } from './services/cohortService.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -235,6 +237,7 @@ export async function createApp(options = {}) {
   const webhookRepository = dal.webhooks;
   const referralRepository = dal.referrals;
   const variantRepository = dal.variants;
+  const cohortRepository = dal.cohorts;
   const apiKeyRepository = dal.apiKeys;
   const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const allowlistRepository = dal.allowlists;
@@ -251,6 +254,7 @@ export async function createApp(options = {}) {
     logger: log,
   });
   const variantService = createVariantService({ variantRepo: variantRepository });
+  const cohortService = createCohortService({ cohortRepo: cohortRepository });
   const shortCacheTtlMs = normalizePositiveInteger(
     /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
     DEFAULT_SHORT_CACHE_TTL_MS,
@@ -1526,6 +1530,13 @@ export async function createApp(options = {}) {
       campaignRepo: campaignRepository,
     });
     app.use(prefix, rateLimiter, requireApiKey, variantRouter);
+
+    // Cohort and retention analysis routes (Issue #623)
+    const cohortRouter = createCohortRoutes({
+      cohortService,
+      campaignRepo: campaignRepository,
+    });
+    app.use(prefix, rateLimiter, requireApiKey, cohortRouter);
   }
 
   registerApiRoutes(API_V1_PREFIX);
