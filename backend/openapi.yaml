@@ -29,6 +29,8 @@ tags:
     description: Audit log endpoints
   - name: Admin
     description: Administrative API key management
+  - name: Organizations
+    description: Organization and team member management
 
 security:
   - ApiKeyAuth: []
@@ -666,6 +668,455 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/organizations:
+    post:
+      summary: Create a new organization
+      tags:
+        - Organizations
+      operationId: createOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+                creatorEmail:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}:
+    get:
+      summary: Get organization by ID
+      tags:
+        - Organizations
+      operationId: getOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update organization
+      tags:
+        - Organizations
+      operationId: updateOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '200':
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete organization
+      tags:
+        - Organizations
+      operationId: deleteOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Organization deleted
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}/members:
+    get:
+      summary: List organization members
+      tags:
+        - Organizations
+      operationId: listMembers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationMember'
+
+  /api/v1/organizations/{id}/members/{memberId}:
+    put:
+      summary: Update member role
+      tags:
+        - Organizations
+      operationId: updateMemberRole
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: [owner, admin, member]
+      responses:
+        '200':
+          description: Member role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMember'
+        '400':
+          description: Validation error or invalid operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Remove member from organization
+      tags:
+        - Organizations
+      operationId: removeMember
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Member removed
+        '400':
+          description: Invalid operation (e.g., removing last owner)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}/invitations:
+    post:
+      summary: Create team invitation
+      tags:
+        - Organizations
+      operationId: createInvitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - role
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                  enum: [owner, admin, member]
+      responses:
+        '201':
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [invitation_created, invitation_exists, already_member, member_updated]
+                  invitation:
+                    $ref: '#/components/schemas/OrganizationInvitation'
+                  inviteLink:
+                    type: string
+                  member:
+                    $ref: '#/components/schemas/OrganizationMember'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: List organization invitations
+      tags:
+        - Organizations
+      operationId: listInvitations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, revoked, expired]
+      responses:
+        '200':
+          description: List of invitations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationInvitation'
+
+  /api/v1/organizations/{id}/invitations/{invitationId}:
+    delete:
+      summary: Revoke invitation
+      tags:
+        - Organizations
+      operationId: revokeInvitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invitation revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  invitation:
+                    $ref: '#/components/schemas/OrganizationInvitation'
+        '400':
+          description: Invalid operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Invitation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/invite/{token}:
+    get:
+      summary: Get invitation details by token
+      tags:
+        - Organizations
+      operationId: getInvitationByToken
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invitation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  role:
+                    type: string
+                  organization:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                  status:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '404':
+          description: Invitation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/invite/{token}/accept:
+    post:
+      summary: Accept invitation
+      tags:
+        - Organizations
+      operationId: acceptInvitation
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  member:
+                    $ref: '#/components/schemas/OrganizationMember'
+                  organization:
+                    $ref: '#/components/schemas/Organization'
+        '400':
+          description: Invalid invitation or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -1135,3 +1586,114 @@ components:
           items:
             type: string
           description: Validation error details
+
+    Organization:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: Organization ID
+        name:
+          type: string
+          description: Organization name
+        slug:
+          type: string
+          description: URL-friendly slug
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    OrganizationMember:
+      type: object
+      required:
+        - id
+        - organizationId
+        - userEmail
+        - role
+        - joinedAt
+      properties:
+        id:
+          type: string
+          description: Member ID
+        organizationId:
+          type: string
+          description: Organization ID
+        userEmail:
+          type: string
+          format: email
+          description: Member email
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: Member role
+        joinedAt:
+          type: string
+          format: date-time
+          description: Join timestamp
+
+    OrganizationInvitation:
+      type: object
+      required:
+        - id
+        - organizationId
+        - email
+        - role
+        - token
+        - invitedBy
+        - invitedAt
+        - expiresAt
+        - status
+      properties:
+        id:
+          type: string
+          description: Invitation ID
+        organizationId:
+          type: string
+          description: Organization ID
+        email:
+          type: string
+          format: email
+          description: Invitee email
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: Assigned role
+        token:
+          type: string
+          description: Secure invitation token
+        invitedBy:
+          type: string
+          description: Email of inviter
+        invitedAt:
+          type: string
+          format: date-time
+          description: Invitation timestamp
+        expiresAt:
+          type: string
+          format: date-time
+          description: Expiration timestamp
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Acceptance timestamp
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Revocation timestamp
+        status:
+          type: string
+          enum: [pending, accepted, revoked, expired]
+          description: Invitation status

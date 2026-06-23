@@ -56,6 +56,7 @@ import { createCohortRoutes } from './routes/cohorts.js';
 import { createCohortService } from './services/cohortService.js';
 import { createPushRoutes } from './routes/push.js';
 import { createWebPushService } from './services/webPushService.js';
+import { createOrganizationRoutes } from './routes/organizations.js';
 import { requestTimeout } from './middleware/timeout.js';
 import { PoolSaturatedError } from './rpcPool.js';
 
@@ -1773,6 +1774,10 @@ export async function createApp(options = {}) {
       service: webPushService,
     });
     app.use(prefix, rateLimiter, requireApiKey, pushRouter);
+
+    // Organization and team member invitation routes (Issue #609)
+    const organizationRouter = createOrganizationRoutes(dal);
+    app.use(`${prefix}/organizations`, rateLimiter, requireApiKey, organizationRouter);
   }
 
   registerApiRoutes(API_V1_PREFIX);
