@@ -31,16 +31,7 @@ export function createAuditRouter({ auditLogService, requireApiKey }) {
     }
 
     const { orgId } = req.params;
-    const {
-      actor,
-      action,
-      entity,
-      entityId,
-      startDate,
-      endDate,
-      page,
-      pageSize,
-    } = req.query;
+    const { actor, action, entity, entityId, startDate, endDate, page, pageSize } = req.query;
 
     try {
       const result = auditLogService.getOrgAuditLogs(orgId, {
