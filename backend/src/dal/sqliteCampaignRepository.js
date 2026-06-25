@@ -104,10 +104,12 @@ function rowToCampaign(row) {
     imageUrl: row.image_url ?? null,
     tags: parseTagsFromRow(row),
     category: row.category ?? null,
+    status: row.status ?? 'draft',
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
   };
-  campaign.status = computeCampaignStatus(campaign);
+  // Keep the computed status for backward compatibility with time-based status
+  campaign.computedStatus = computeCampaignStatus(campaign);
   return campaign;
 }
 
@@ -154,11 +156,12 @@ export function createSqliteCampaignRepository({
    *   tags?: string[],
    *   category?: string,
    *   includeHidden?: boolean,
+   *   status?: 'draft' | 'published' | 'archived' | 'all',
    *   sort?: string,
    *   order?: 'asc' | 'desc'
    * }} [opts]
    */
-  function list({ active, q, tags, category, includeHidden = false, sort, order } = {}) {
+  function list({ active, q, tags, category, includeHidden = false, status, sort, order } = {}) {
     const where = [];
     const params = [];
     const hasQuery = typeof q === 'string' && q.length > 0;
@@ -171,6 +174,11 @@ export function createSqliteCampaignRepository({
     if (active !== undefined) {
       where.push('campaigns.active = ?');
       params.push(active ? 1 : 0);
+    }
+
+    if (status && status !== 'all') {
+      where.push('campaigns.status = ?');
+      params.push(status);
     }
 
     if (category) {
@@ -274,6 +282,7 @@ export function createSqliteCampaignRepository({
     imageUrl = null,
     tags = [],
     category = null,
+    status = 'draft',
   }) {
     const normalizedTags = normalizeTags(tags);
     validateTags(normalizedTags);
@@ -286,8 +295,8 @@ export function createSqliteCampaignRepository({
         `INSERT INTO campaigns (
           name, slug, description, active, reward_per_action, referral_bonus_points,
           start_date, end_date, featured, hidden, hidden_reason, contract_id,
-          image_url, tags, category, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          image_url, tags, category, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         name,
@@ -305,6 +314,7 @@ export function createSqliteCampaignRepository({
         imageUrl,
         JSON.stringify(normalizedTags),
         category,
+        status,
         createdAt,
         createdAt,
       );
@@ -328,6 +338,7 @@ export function createSqliteCampaignRepository({
       'imageUrl',
       'tags',
       'category',
+      'status',
     ];
     const columnMap = {
       name: 'name',
@@ -344,6 +355,7 @@ export function createSqliteCampaignRepository({
       imageUrl: 'image_url',
       tags: 'tags',
       category: 'category',
+      status: 'status',
     };
     const booleanFields = new Set(['active', 'featured', 'hidden']);
     const sets = [];
@@ -428,6 +440,67 @@ export function createSqliteCampaignRepository({
     return newCampaign;
   }
 
+  /**
+   * Publish a campaign (draft → published)
+   * Validates required fields before publishing
+   */
+  function publish(id) {
+    const campaign = getById(id);
+    if (!campaign) {
+      throw new Error('Campaign not found');
+    }
+
+    if (campaign.status === 'published') {
+      return campaign; // Already published, idempotent
+    }
+
+    if (campaign.status === 'archived') {
+      throw new Error('Cannot publish an archived campaign. Only forward transitions are allowed.');
+    }
+
+    // Validate required fields for publishing
+    if (!campaign.name || campaign.name.trim() === '') {
+      throw new Error('Campaign name is required to publish');
+    }
+
+    if (!campaign.contractId) {
+      throw new Error('Contract ID is required to publish');
+    }
+
+    const updatedAt = new Date().toISOString();
+    db.prepare(`UPDATE campaigns SET status = 'published', updated_at = ? WHERE id = ?`).run(
+      updatedAt,
+      Number(id),
+    );
+    return getById(id);
+  }
+
+  /**
+   * Archive a campaign (published → archived)
+   * Can only archive published campaigns
+   */
+  function archive(id) {
+    const campaign = getById(id);
+    if (!campaign) {
+      throw new Error('Campaign not found');
+    }
+
+    if (campaign.status === 'archived') {
+      return campaign; // Already archived, idempotent
+    }
+
+    if (campaign.status === 'draft') {
+      throw new Error('Cannot archive a draft campaign. Publish it first.');
+    }
+
+    const updatedAt = new Date().toISOString();
+    db.prepare(`UPDATE campaigns SET status = 'archived', updated_at = ? WHERE id = ?`).run(
+      updatedAt,
+      Number(id),
+    );
+    return getById(id);
+  }
+
   return {
     list,
     listCategories,
@@ -438,6 +511,8 @@ export function createSqliteCampaignRepository({
     update,
     delete: remove,
     clone,
+    publish,
+    archive,
     ftsAvailable,
   };
 }

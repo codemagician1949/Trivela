@@ -29,6 +29,8 @@ export function createCategorySchema(allowedCategories = DEFAULT_CATEGORIES) {
 
 const imageUrlSchema = z.string().url('imageUrl must be a valid URL').optional();
 
+const statusSchema = z.enum(['draft', 'published', 'archived']).optional();
+
 /** Schema for creating a new campaign. */
 export const campaignCreateSchema = z
   .object({
@@ -61,6 +63,7 @@ export const campaignCreateSchema = z
     imageUrl: imageUrlSchema,
     tags: tagsSchema,
     category: createCategorySchema(),
+    status: statusSchema,
   })
   .refine(
     (data) => {
@@ -108,6 +111,7 @@ export const campaignUpdateSchema = z
     imageUrl: imageUrlSchema,
     tags: tagsSchema,
     category: createCategorySchema(),
+    status: statusSchema,
   })
   .refine(
     (data) => {
@@ -132,6 +136,7 @@ export const listQuerySchema = z
     q: z.string().optional(),
     tags: z.string().optional(),
     category: z.string().optional(),
+    status: z.enum(['draft', 'published', 'archived', 'all']).optional(),
   })
   .passthrough();
 

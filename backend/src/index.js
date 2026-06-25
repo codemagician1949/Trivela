@@ -48,6 +48,7 @@ import {
 import { buildCampaignStats } from './services/campaignStatsService.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
+import { initializeWebSocket, getWebSocketServer } from './websocket/index.js';
 import { createEmbedRoute } from './routes/embed.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
@@ -58,6 +59,7 @@ import { createOrgRoutes } from './routes/orgs.js';
 import { createAuditRouter } from './routes/audit.js';
 import { createAuditLogService } from './services/auditLogService.js';
 import { createWebPushService } from './services/webPushService.js';
+import { createOrganizationRoutes } from './routes/organizations.js';
 import { createUsageMeteringService } from './services/usageMeteringService.js';
 import { createUsageMeteringMiddleware } from './middleware/usageMetering.js';
 import { requestTimeout } from './middleware/timeout.js';
@@ -822,7 +824,36 @@ export async function createApp(options = {}) {
           .map((t) => t.trim())
           .filter(Boolean)
       : undefined;
-    const items = campaignRepository.list({ active: activeFilter, q, sort, order, category, tags });
+
+    // Status filtering (Issue #457)
+    // By default, only show published campaigns to public API
+    // API key holders can request draft/archived/all statuses
+    const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : undefined;
+    const hasApiKey = req.context?.apiKeyRecord !== undefined;
+    let status = statusRaw;
+
+    if (statusRaw && ['draft', 'archived', 'all'].includes(statusRaw) && !hasApiKey) {
+      // Require API key for non-published statuses
+      return res.status(401).json({
+        error: 'API key required to access draft, archived, or all campaigns',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    // Default to published only for public API
+    if (!status && !hasApiKey) {
+      status = 'published';
+    }
+
+    const items = campaignRepository.list({
+      active: activeFilter,
+      q,
+      sort,
+      order,
+      category,
+      tags,
+      status,
+    });
     const payload = paginateItems(items, req.query);
     shortCache.set(cacheKey, {
       expiresAt: Date.now() + shortCacheTtlMs,
@@ -920,6 +951,7 @@ export async function createApp(options = {}) {
       imageUrl,
       tags,
       category,
+      status,
     } = result.data;
     try {
       const campaign = campaignRepository.create({
@@ -938,6 +970,7 @@ export async function createApp(options = {}) {
         imageUrl: imageUrl ?? null,
         tags: tags ?? [],
         category: category ?? null,
+        status: status ?? 'draft',
       });
       recordAuditEntry(req, {
         action: 'create',
@@ -957,6 +990,16 @@ export async function createApp(options = {}) {
         .catch((err) => {
           log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
         });
+
+      // Notify WebSocket clients about new campaign (Issue #456)
+      const wsServer = getWebSocketServer();
+      if (wsServer) {
+        wsServer.broadcast('campaigns', {
+          type: 'campaign_created',
+          campaign,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       shortCache.clear();
       return res.status(201).json(campaign);
@@ -1007,6 +1050,7 @@ export async function createApp(options = {}) {
       imageUrl,
       tags,
       category,
+      status,
     } = result.data;
     /** @type {Record<string, unknown>} */
     const updateFields = {};
@@ -1024,6 +1068,7 @@ export async function createApp(options = {}) {
     if (imageUrl !== undefined) updateFields.imageUrl = imageUrl;
     if (tags !== undefined) updateFields.tags = tags;
     if (category !== undefined) updateFields.category = category;
+    if (status !== undefined) updateFields.status = status;
 
     const before = campaignRepository.getById(req.params.id);
     if (!before) {
@@ -1091,6 +1136,16 @@ export async function createApp(options = {}) {
         .catch((err) => {
           log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.updated webhook');
         });
+    }
+
+    // Notify WebSocket clients about campaign update (Issue #456)
+    const wsServer = getWebSocketServer();
+    if (wsServer) {
+      wsServer.notifyCampaignUpdate(campaign.id, {
+        campaign,
+        changes,
+        before,
+      });
     }
 
     shortCache.clear();
@@ -1168,6 +1223,88 @@ export async function createApp(options = {}) {
         });
       }
       throw error;
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function publishCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.publish(req.params.id);
+      recordAuditEntry(req, {
+        action: 'publish',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.published',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.published webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(campaign);
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'PUBLISH_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function archiveCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.archive(req.params.id);
+      recordAuditEntry(req, {
+        action: 'archive',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.archived',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.archived webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(campaign);
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'ARCHIVE_FAILED',
+      });
     }
   }
 
@@ -1511,6 +1648,10 @@ export async function createApp(options = {}) {
         return uploadCampaignImageHandler(req, res);
       });
     });
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
+    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, requireApiKey, publishCampaign);
+    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, requireApiKey, archiveCampaign);
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
     app.put(`${prefix}/campaigns/:id`, rateLimiter, ...guard, updateCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
@@ -1751,6 +1892,11 @@ export async function createApp(options = {}) {
       repository: pushSubscriptionRepository,
       service: webPushService,
     });
+    app.use(prefix, rateLimiter, requireApiKey, pushRouter);
+
+    // Organization and team member invitation routes (Issue #609)
+    const organizationRouter = createOrganizationRoutes(dal);
+    app.use(`${prefix}/organizations`, rateLimiter, requireApiKey, organizationRouter);
     app.use(prefix, rateLimiter, ...guard, pushRouter);
   }
 
@@ -1802,6 +1948,18 @@ export async function startServer(options = {}) {
   const server = app.listen(port, () => {
     log.info({ port }, 'Trivela API running');
   });
+
+  // Initialize WebSocket server if not disabled
+  if (!options.disableWebSocket && process.env.ENABLE_WEBSOCKET !== 'false') {
+    try {
+      initializeWebSocket(server, {
+        path: process.env.WEBSOCKET_PATH || '/ws',
+      });
+      log.info('WebSocket server initialized on /ws');
+    } catch (error) {
+      log.error({ error }, 'Failed to initialize WebSocket server');
+    }
+  }
 
   // ── Graceful shutdown (issue #650) ─────────────────────────────────────────
   // On SIGTERM / SIGINT:
